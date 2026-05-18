@@ -1,0 +1,2 @@
+class DsqlexError(Exception):
+    pass
