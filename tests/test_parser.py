@@ -3,7 +3,7 @@ import pytest
 from dsqlex import parse, DsqlexError
 from dsqlex import (
     Select, Number, String, Boolean, Null, Identifier,
-    BinaryOp, CaseExpr, WhenClause, FunctionCall,
+    BinaryOp, UnaryOp, CaseExpr, WhenClause, FunctionCall,
     InExpr, NotInExpr, LikeExpr, NotLikeExpr,
 )
 
@@ -424,3 +424,56 @@ class TestErrorHandling:
     def test_rejects_unexpected_tokens_after_expression(self):
         with pytest.raises(DsqlexError, match="Unexpected tokens"):
             parse("SELECT 1 2")
+
+
+class TestLeastGreatest:
+    def test_parses_least_with_multiple_arguments(self):
+        assert parse("SELECT LEAST(a, 1, 2)") == Select(
+            FunctionCall("least", (Identifier("a"), Number("1"), Number("2")))
+        )
+
+    def test_parses_greatest(self):
+        ast = parse("GREATEST(x, y)")
+        assert isinstance(ast.expr, FunctionCall) and ast.expr.name == "greatest"
+        assert ast.expr.args == (Identifier("x"), Identifier("y"))
+
+    def test_parses_identifier_with_trailing_question_mark(self):
+        assert parse("SELECT active?") == Select(Identifier("active?"))
+
+
+class TestUnaryMinus:
+    def test_parses_unary_minus_on_literal(self):
+        assert parse("SELECT -1") == Select(UnaryOp("minus", Number("1")))
+
+    def test_parses_unary_minus_on_right_side_of_multiplication(self):
+        assert parse("SELECT amount * -1") == Select(
+            BinaryOp("multiply", Identifier("amount"), UnaryOp("minus", Number("1")))
+        )
+
+    def test_parses_unary_minus_on_parenthesized_expression(self):
+        assert parse("SELECT -(1 + 2)") == Select(
+            UnaryOp("minus", BinaryOp("plus", Number("1"), Number("2")))
+        )
+
+    def test_parses_subtraction_of_negated_operand(self):
+        assert parse("SELECT 5 - - 2") == Select(
+            BinaryOp("minus", Number("5"), UnaryOp("minus", Number("2")))
+        )
+
+    def test_parses_nested_unary_minus(self):
+        assert parse("SELECT - -5") == Select(
+            UnaryOp("minus", UnaryOp("minus", Number("5")))
+        )
+
+    def test_double_dash_is_a_comment_not_unary(self):
+        with pytest.raises(DsqlexError):
+            parse("SELECT --5")
+
+    def test_parses_unary_minus_in_in_list(self):
+        assert parse("x IN (1, -2)") == Select(
+            InExpr(Identifier("x"), (Number("1"), UnaryOp("minus", Number("2"))))
+        )
+
+    def test_rejects_mixing_additive_and_multiplicative_with_negated_operand(self):
+        with pytest.raises(DsqlexError, match="Ambiguous expression"):
+            parse("SELECT 1 + 2 * -3")

@@ -25,6 +25,8 @@ _WORD_MAP: dict[str, tuple[str, str]] = {
     "NVL":      ("function", "coalesce"),  # alias
     "ABS":      ("function", "abs"),
     "CONCAT":   ("function", "concat"),
+    "LEAST":    ("function", "least"),
+    "GREATEST": ("function", "greatest"),
     "EVENT":    ("function", "event"),
 }
 
@@ -105,6 +107,8 @@ def tokenize(expr: str) -> list[Token]:
                 i += 1  # consume '.'
                 while i < n and expr[i].isascii() and (expr[i].isalnum() or expr[i] == "_"):
                     i += 1
+            if i < n and expr[i] == "?":
+                i += 1
             word = expr[start:i]
             upper = word.upper()
             # Keywords and functions are only matched on plain words (no dots)

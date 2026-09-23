@@ -21,7 +21,7 @@ from ._errors import DsqlexError
 from ._tokens import Token
 from ._ast import (
     Select, Number, String, Boolean, Null, Identifier,
-    BinaryOp, CaseExpr, WhenClause, FunctionCall,
+    BinaryOp, UnaryOp, CaseExpr, WhenClause, FunctionCall,
     InExpr, NotInExpr, LikeExpr, NotLikeExpr,
 )
 from ._lexer import tokenize as _tokenize
@@ -34,7 +34,7 @@ __all__ = [
     "Token",
     # AST node types (useful for type-checking / pattern matching on parse output)
     "Select", "Number", "String", "Boolean", "Null", "Identifier",
-    "BinaryOp", "CaseExpr", "WhenClause", "FunctionCall",
+    "BinaryOp", "UnaryOp", "CaseExpr", "WhenClause", "FunctionCall",
     "InExpr", "NotInExpr", "LikeExpr", "NotLikeExpr",
     # Public functions
     "eval", "parse", "tokenize", "evaluate_ast",
