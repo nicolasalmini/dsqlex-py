@@ -412,3 +412,28 @@ class TestErrorMessages:
     def test_unexpected_character_message_format(self):
         with pytest.raises(DsqlexError, match=r"Unexpected character: 'ô'"):
             tokenize("ô")
+
+
+class TestQuestionMarkIdentifiers:
+    def test_trailing_question_mark(self):
+        assert tokenize("active?") == [tok("identifier", "active?")]
+
+    def test_trailing_question_mark_on_dotted_identifier(self):
+        assert tokenize("user.active?") == [tok("identifier", "user.active?")]
+
+    def test_question_mark_does_not_classify_as_keyword(self):
+        assert tokenize("select?") == [tok("identifier", "select?")]
+
+    def test_double_question_mark_is_error(self):
+        with pytest.raises(DsqlexError, match="Unexpected character"):
+            tokenize("active??")
+
+
+class TestLeastGreatestTokens:
+    def test_least_greatest_are_functions(self):
+        assert tokenize("LEAST") == [tok("function", "least")]
+        assert tokenize("GREATEST") == [tok("function", "greatest")]
+
+    def test_least_greatest_case_insensitive(self):
+        assert tokenize("least") == [tok("function", "least")]
+        assert tokenize("Greatest") == [tok("function", "greatest")]

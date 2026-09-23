@@ -8,7 +8,7 @@ from typing import Any
 from ._errors import DsqlexError
 from ._ast import (
     Select, Number, String, Boolean, Null, Identifier,
-    BinaryOp, CaseExpr, WhenClause, FunctionCall,
+    BinaryOp, UnaryOp, CaseExpr, WhenClause, FunctionCall,
     InExpr, NotInExpr, LikeExpr, NotLikeExpr,
 )
 
@@ -51,6 +51,12 @@ def _eval(node, context: dict, opts: dict) -> Any:
 
     if isinstance(node, BinaryOp):
         return _eval_binary_op(node, context, opts)
+
+    if isinstance(node, UnaryOp):
+        value = _eval(node.operand, context, opts)
+        if value is None:
+            return None
+        return -_to_decimal(value)
 
     if isinstance(node, CaseExpr):
         return _eval_case_expr(node, context, opts)
@@ -151,6 +157,9 @@ def _eval_binary_op(node: BinaryOp, context: dict, opts: dict) -> Any:
     right_val = _eval(node.right, context, opts)
 
     # Arithmetic
+    if op in ("plus", "minus", "multiply", "divide"):
+        if left_val is None or right_val is None:
+            return None
     if op == "plus":
         return Decimal.__add__(_to_decimal(left_val), _to_decimal(right_val))
     if op == "minus":
@@ -202,9 +211,11 @@ def _eval_function(node: FunctionCall, context: dict, opts: dict) -> Any:
     if name == "round":
         if len(args) != 2:
             raise DsqlexError("ROUND requires exactly 2 arguments")
-        value = _to_decimal(_eval(args[0], context, opts))
-        precision = int(_to_decimal(_eval(args[1], context, opts)))
-        return _round(value, precision)
+        value = _eval(args[0], context, opts)
+        precision = _eval(args[1], context, opts)
+        if value is None or precision is None:
+            return None
+        return _round(_to_decimal(value), int(_to_decimal(precision)))
 
     if name == "coalesce":
         for arg in args:
@@ -226,10 +237,16 @@ def _eval_function(node: FunctionCall, context: dict, opts: dict) -> Any:
     if name == "abs":
         if len(args) != 1:
             raise DsqlexError("ABS requires exactly 1 argument")
-        return abs(_to_decimal(_eval(args[0], context, opts)))
+        value = _eval(args[0], context, opts)
+        if value is None:
+            return None
+        return abs(_to_decimal(value))
 
     if name == "concat":
         return "".join(str(_eval(arg, context, opts)) for arg in args)
+
+    if name == "least" or name == "greatest":
+        return _pick_extreme(name, args, context, opts)
 
     if name == "event":
         return _eval_event(args, context, opts)
@@ -293,6 +310,20 @@ def _resolve_event(type_: str, subtype: str, eval_context: dict, opts: dict) -> 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _pick_extreme(kind: str, args, context: dict, opts: dict) -> Any:
+    if not args:
+        raise DsqlexError("LEAST/GREATEST requires at least one argument")
+    values = [_eval(arg, context, opts) for arg in args]
+    if any(v is None for v in values):
+        return None
+    target = "lt" if kind == "least" else "gt"
+    best = values[0]
+    for value in values[1:]:
+        if _compare(value, best) == target:
+            best = value
+    return best
+
 
 def _is_truthy(value: Any) -> bool:
     """Elixir semantics: everything except None and False is truthy."""

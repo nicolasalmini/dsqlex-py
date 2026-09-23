@@ -1,10 +1,11 @@
 """Evaluator tests — ports Dsqlex.EvaluatorTest from the Elixir reference."""
 import pytest
+import datetime
 from decimal import Decimal
 from dsqlex import evaluate_ast, DsqlexError
 from dsqlex import (
     Select, Number, String, Boolean, Null, Identifier,
-    BinaryOp, CaseExpr, WhenClause, FunctionCall,
+    BinaryOp, UnaryOp, CaseExpr, WhenClause, FunctionCall,
     InExpr, NotInExpr, LikeExpr, NotLikeExpr,
 )
 
@@ -658,3 +659,118 @@ class TestLikeNotLike:
 
     def test_not_like_match_returns_false(self):
         assert ev(sel(NotLikeExpr(ident("status"), s("%active%")))) is False
+
+
+class TestNullPropagation:
+    def test_plus_with_null_returns_null(self):
+        assert ev(sel(binop("plus", ident("nullable_field"), num("1")))) is None
+        assert ev(sel(binop("plus", num("1"), ident("nullable_field")))) is None
+
+    def test_minus_with_null_returns_null(self):
+        assert ev(sel(binop("minus", ident("nullable_field"), num("1")))) is None
+
+    def test_multiply_with_null_returns_null(self):
+        assert ev(sel(binop("multiply", num("2"), ident("nullable_field")))) is None
+
+    def test_divide_with_null_returns_null(self):
+        assert ev(sel(binop("divide", ident("nullable_field"), num("2")))) is None
+
+    def test_round_with_null_value_returns_null(self):
+        assert ev(sel(call("round", [ident("nullable_field"), num("2")]))) is None
+
+    def test_round_with_null_precision_returns_null(self):
+        assert ev(sel(call("round", [ident("x"), ident("nullable_field")]))) is None
+
+    def test_abs_with_null_returns_null(self):
+        assert ev(sel(call("abs", [ident("nullable_field")]))) is None
+
+
+class TestLeastGreatest:
+    def test_least_picks_smallest(self):
+        ast = sel(call("least", [num("3"), num("1"), num("2")]))
+        assert ev(ast) == Decimal("1")
+
+    def test_greatest_picks_largest(self):
+        ast = sel(call("greatest", [num("3"), num("1"), num("2")]))
+        assert ev(ast) == Decimal("3")
+
+    def test_least_with_single_argument(self):
+        assert ev(sel(call("least", [num("7")]))) == Decimal("7")
+
+    def test_least_with_zero_args_is_error(self):
+        with pytest.raises(DsqlexError, match="at least one argument"):
+            ev(sel(call("least", [])))
+
+    def test_greatest_with_zero_args_is_error(self):
+        with pytest.raises(DsqlexError, match="at least one argument"):
+            ev(sel(call("greatest", [])))
+
+    def test_least_returns_null_if_any_arg_null(self):
+        ast = sel(call("least", [num("1"), ident("nullable_field"), num("2")]))
+        assert ev(ast) is None
+
+    def test_greatest_returns_null_if_any_arg_null(self):
+        ast = sel(call("greatest", [num("1"), ident("nullable_field")]))
+        assert ev(ast) is None
+
+    def test_least_strings_lexicographic(self):
+        ast = sel(call("least", [s("banana"), s("apple"), s("cherry")]))
+        assert ev(ast) == "apple"
+
+    def test_greatest_strings_lexicographic(self):
+        ast = sel(call("greatest", [s("banana"), s("apple"), s("cherry")]))
+        assert ev(ast) == "cherry"
+
+    def test_least_preserves_first_on_tie(self):
+        ast = sel(call("least", [num("1"), num("1.0")]))
+        result = ev(ast)
+        assert result == Decimal("1")
+        assert str(result) == "1"
+
+    def test_least_dates(self):
+        ctx = {"a": datetime.date(2024, 1, 1), "b": datetime.date(2023, 6, 15)}
+        ast = sel(call("least", [ident("a"), ident("b")]))
+        assert evaluate_ast(ast, ctx) == datetime.date(2023, 6, 15)
+
+    def test_greatest_datetimes(self):
+        ctx = {
+            "a": datetime.datetime(2024, 1, 1, 12, 0),
+            "b": datetime.datetime(2024, 1, 1, 15, 30),
+        }
+        ast = sel(call("greatest", [ident("a"), ident("b")]))
+        assert evaluate_ast(ast, ctx) == datetime.datetime(2024, 1, 1, 15, 30)
+
+    def test_least_times(self):
+        ctx = {"a": datetime.time(9, 0), "b": datetime.time(17, 30)}
+        ast = sel(call("least", [ident("a"), ident("b")]))
+        assert evaluate_ast(ast, ctx) == datetime.time(9, 0)
+
+    def test_date_comparison_operators(self):
+        ctx = {"d": datetime.date(2024, 3, 1)}
+        ast = sel(binop("gt", ident("d"), ident("d")))
+        assert evaluate_ast(ast, ctx) is False
+        ctx2 = {"a": datetime.date(2024, 3, 1), "b": datetime.date(2024, 1, 1)}
+        assert evaluate_ast(sel(binop("gt", ident("a"), ident("b"))), ctx2) is True
+
+
+class TestUnaryMinus:
+    def test_negates_number_literal(self):
+        assert ev(sel(UnaryOp("minus", num("5")))) == Decimal("-5")
+
+    def test_negates_decimal_context_value(self):
+        assert ev(sel(UnaryOp("minus", ident("x")))) == Decimal("-100.00")
+
+    def test_negates_nested_arithmetic(self):
+        ast = sel(UnaryOp("minus", binop("plus", num("1"), num("2"))))
+        assert ev(ast) == Decimal("-3")
+
+    def test_coerces_integer_values(self):
+        assert ev(sel(UnaryOp("minus", ident("group_id")))) == Decimal("-33")
+
+    def test_propagates_null(self):
+        assert ev(sel(UnaryOp("minus", null()))) is None
+        assert ev(sel(UnaryOp("minus", ident("nullable_field")))) is None
+
+    def test_nonnumeric_operand_is_error(self):
+        with pytest.raises(DsqlexError):
+            ev(sel(UnaryOp("minus", b(True))))

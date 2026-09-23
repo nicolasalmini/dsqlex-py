@@ -3,7 +3,7 @@ from ._errors import DsqlexError
 from ._tokens import Token
 from ._ast import (
     Select, Number, String, Boolean, Null, Identifier,
-    BinaryOp, CaseExpr, WhenClause, FunctionCall,
+    BinaryOp, UnaryOp, CaseExpr, WhenClause, FunctionCall,
     InExpr, NotInExpr, LikeExpr, NotLikeExpr,
 )
 
@@ -244,6 +244,10 @@ class _Parser:
         t = self._peek()
         if t is None:
             raise DsqlexError(f"Unexpected end of input")
+
+        if t.type == "operator" and t.value == "minus":
+            self._consume()
+            return UnaryOp("minus", self._parse_primary())
 
         # Number literal
         if t.type == "number":

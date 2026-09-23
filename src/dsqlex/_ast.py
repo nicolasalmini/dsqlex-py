@@ -41,6 +41,12 @@ class BinaryOp:
 
 
 @dataclass(frozen=True)
+class UnaryOp:
+    op: str
+    operand: Any
+
+
+@dataclass(frozen=True)
 class CaseExpr:
     when_clauses: tuple  # tuple of WhenClause
     else_clause: Any     # None or AST node

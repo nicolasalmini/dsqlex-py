@@ -570,3 +570,49 @@ class TestLikeOperator:
 
     def test_like_and_in_combined(self):
         assert run("category IN ('A', 'B') AND label LIKE '%world%'") is True
+
+
+class TestNullAndExtremesEndToEnd:
+    def test_null_propagates_through_arithmetic(self):
+        assert run("SELECT bonus + 1") is None
+        assert run("SELECT price * bonus") is None
+
+    def test_round_and_abs_with_null(self):
+        assert run("SELECT ROUND(bonus, 2)") is None
+        assert run("SELECT ABS(bonus)") is None
+
+    def test_least_greatest_end_to_end(self):
+        assert run("SELECT LEAST(price, quantity, rate)") == Decimal("5.00")
+        assert run("SELECT GREATEST(price, quantity, rate)") == Decimal("500.00")
+
+    def test_least_null_propagates(self):
+        assert run("SELECT LEAST(price, bonus)") is None
+
+    def test_question_mark_identifier_in_context(self):
+        assert run("SELECT eligible?", {"eligible?": True}) is True
+
+
+class TestUnaryMinusEndToEnd:
+    def test_negated_literal(self):
+        assert run("SELECT -2.5") == Decimal("-2.5")
+
+    def test_negated_field(self):
+        assert run("SELECT -price") == Decimal("-500.00")
+
+    def test_multiplication_by_negative_literal(self):
+        assert run("SELECT price * -1") == Decimal("-500.00")
+
+    def test_negated_parenthesized_expression(self):
+        assert run("SELECT -(1 + 2)") == Decimal("-3")
+
+    def test_subtraction_of_negated_operand(self):
+        assert run("SELECT 5 - - 2") == Decimal("7")
+
+    def test_negative_value_in_in_list(self):
+        context = {"balance": Decimal("-42")}
+        assert run("balance IN (-42, 0)", context) is True
+        assert run("balance IN (-41, 0)", context) is False
+
+    def test_negating_null_returns_none(self):
+        assert run("SELECT -bonus") is None
+        assert run("SELECT -NULL") is None
